@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import os
 from typing import Any
-from cs336_data.utils import extract_text_from_byte_string, detect_main_language
+from cs336_data.utils import (
+    extract_text_from_byte_string,
+    detect_main_language,
+    mask_email_address,
+    mask_phone_number,
+    mask_ip_address,
+    detect_nsfw,
+    detect_toxic,
+)
 
 
 def run_extract_text_from_html_bytes(html_bytes: bytes) -> str | None:
@@ -15,23 +23,23 @@ def run_identify_language(text: str) -> tuple[Any, float]:
 
 
 def run_mask_emails(text: str) -> tuple[str, int]:
-    raise NotImplementedError
+    return mask_email_address(text)
 
 
 def run_mask_phone_numbers(text: str) -> tuple[str, int]:
-    raise NotImplementedError
+    return mask_phone_number(text)
 
 
 def run_mask_ips(text: str) -> tuple[str, int]:
-    raise NotImplementedError
+    return mask_ip_address(text)
 
 
 def run_classify_nsfw(text: str) -> tuple[Any, float]:
-    raise NotImplementedError
+    return detect_nsfw(text)
 
 
 def run_classify_toxic_speech(text: str) -> tuple[Any, float]:
-    raise NotImplementedError
+    return detect_toxic(text)
 
 
 def run_classify_quality(text: str) -> tuple[Any, float]:

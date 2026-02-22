@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastwarc.warc import ArchiveIterator, WarcRecordType
 
-from utils import extract_text_from_byte_string, detect_main_language
+from utils import extract_text_from_byte_string, detect_main_language, mask_pii, detect_nsfw
 
 """
 Tester for the functions in utils.py
@@ -73,6 +73,31 @@ def process_warc_lang_detect(warc_path: str, max_records: int = 10):
     print(f"\nTotal records processed: {record_count}")
 
 
+def process_warc_mask_pii(warc_path: str, max_records: int = 10):
+    """Process a WARC file and mask PII from HTML responses."""
+    warc_path = Path(warc_path)
+
+    print(f"Processing WARC file for masking PII: {warc_path}")
+    record_count = 0
+
+    with open(warc_path, "rb") as f:
+        for record in ArchiveIterator(f):
+            if record.record_type == WarcRecordType.response:
+                content = record.reader.read()
+                text = extract_text_from_byte_string(content)
+
+                if text:
+                    # Replace newlines with spaces for fasttext
+                    text_clean = text.replace("\n", " ").strip()
+                    if text_clean:
+                        masked_text = mask_pii(text_clean)
+                        print(f"\n{'=' * 60}")
+                        print(f"Record {record_count + 1}")
+                        print(f"URL: {record.headers.get('WARC-Target-URI', 'N/A')}")
+                        print(f"Masked text: {masked_text}")
+                        print
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process WARC files with various utilities")
     parser.add_argument("warc_file", nargs="?", help="Path to WARC file (.warc.gz)")
@@ -81,7 +106,7 @@ if __name__ == "__main__":
         "-m",
         type=str,
         default="extract",
-        choices=["extract", "lang_detect"],
+        choices=["extract", "lang_detect", "mask_pii", "nsfw_detect"],
         help="Utility method to run: 'extract' for text extraction, 'lang_detect' for language detection (default: extract)",
     )
     parser.add_argument(
@@ -105,3 +130,11 @@ if __name__ == "__main__":
             text = "中午要吃饭 "
             lang_result = detect_main_language(text)
             print(f"Detected language: {lang_result}")
+        elif args.mode == "mask_pii":
+            text = "My phone number is 123-456-7890 and my email is abc@example.com"
+            masked_text = mask_pii(text)
+            print(f"Masked text: {masked_text}")
+        elif args.mode == "nsfw_detect":
+            text = "SUCK MY C*CK WIKIPEDIA EDITORS...F*CKING *SSH*LE DORKS. "
+            nsfw_result = detect_nsfw(text)
+            print(f"NSFW detection result: {nsfw_result}")
