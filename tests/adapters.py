@@ -10,6 +10,7 @@ from cs336_data.utils import (
     mask_ip_address,
     detect_nsfw,
     detect_toxic,
+    gopher_quality_filters,
 )
 
 
@@ -47,7 +48,7 @@ def run_classify_quality(text: str) -> tuple[Any, float]:
 
 
 def run_gopher_quality_filter(text: str) -> bool:
-    raise NotImplementedError
+    return not gopher_quality_filters(text)
 
 
 def run_exact_line_deduplication(input_files: list[os.PathLike], output_directory: os.PathLike):

@@ -1,9 +1,12 @@
+from abc import ABC, abstractmethod
+
 from fastwarc.warc import ArchiveIterator, WarcRecordType
 
 from resiliparse.parse.encoding import detect_encoding
 from resiliparse.extract.html2text import extract_plain_text
 import fasttext
 import re
+import nltk
 
 
 def extract_text_from_byte_string(input: bytes) -> str | None:
@@ -104,6 +107,99 @@ def detect_toxic(text: str):
     # fasttext predict requires single line input - replace newlines with spaces
     text_clean = text.replace("\n", " ").strip()
     predictions = model.predict(text_clean)
-    nsfw = predictions[0][0].replace("__label__", "")
+    toxic = predictions[0][0].replace("__label__", "")
     confidence = predictions[1][0]
-    return (nsfw, confidence)
+    return (toxic, confidence)
+
+
+class QualityFilter(ABC):
+    """Abstract base class for quality filters using Chain of Responsibility pattern."""
+
+    def __init__(self):
+        self._next_filter: QualityFilter | None = None
+
+    def set_next(self, filter: "QualityFilter") -> "QualityFilter":
+        """Set the next filter in the chain and return it for chaining."""
+        self._next_filter = filter
+        return filter
+
+    def handle(self, text: str) -> bool:
+        """
+        Process the text through this filter and the chain.
+        Returns True if text should be FILTERED OUT (fails quality check).
+        """
+        if self.should_filter(text):
+            return True
+        if self._next_filter:
+            return self._next_filter.handle(text)
+        return False
+
+    @abstractmethod
+    def should_filter(self, text: str) -> bool:
+        """Return True if text fails this quality check and should be filtered out."""
+        pass
+
+
+class WordCountFilter(QualityFilter):
+    """Filter texts with less than 50 or more than 100,000 words."""
+
+    def should_filter(self, text: str) -> bool:
+        words = text.split()
+        word_count = len(words)
+        return word_count < 50 or word_count > 100_000
+
+
+class MeanWordLengthFilter(QualityFilter):
+    """Filter texts with mean word length outside the range of 3 to 10 characters."""
+
+    def should_filter(self, text: str) -> bool:
+        words = text.split()
+        if not words:
+            return True
+        mean_length = sum(len(word) for word in words) / len(words)
+        return mean_length < 3 or mean_length > 10
+
+
+class EllipsisFilter(QualityFilter):
+    """Filter texts with more than 30% of lines ending with an ellipsis."""
+
+    def should_filter(self, text: str) -> bool:
+        lines = text.split("\n")
+        if not lines:
+            return False
+        ellipsis_count = sum(1 for line in lines if line.rstrip().endswith("..."))
+        return (ellipsis_count / len(lines)) > 0.3
+
+
+class AlphabeticWordFilter(QualityFilter):
+    """Filter texts with less than 80% of words containing at least one alphabetic character."""
+
+    def should_filter(self, text: str) -> bool:
+        words = text.split()
+        if not words:
+            return True
+        alpha_words = sum(1 for word in words if any(c.isalpha() for c in word))
+        return (alpha_words / len(words)) < 0.8
+
+
+def gopher_quality_filters(text: str) -> bool:
+    """
+    Apply filters to a text to determine if it is suitable for Gopher.
+    Uses Chain of Responsibility pattern.
+
+    Return True if any of these conditions are met (text should be filtered out):
+    • Contain less than 50 or more than 100,000 words.
+    • Have a mean word length outside the range of 3 to 10 characters.
+    • Have more than 30% of lines ending with an ellipsis ("...").
+    • Contain less than 80% of words with at least one alphabetic character.
+    """
+    # Build the chain
+    word_count_filter = WordCountFilter()
+    mean_word_length_filter = MeanWordLengthFilter()
+    ellipsis_filter = EllipsisFilter()
+    alphabetic_filter = AlphabeticWordFilter()
+
+    word_count_filter.set_next(mean_word_length_filter).set_next(ellipsis_filter).set_next(alphabetic_filter)
+
+    # Process through the chain
+    return word_count_filter.handle(text)
