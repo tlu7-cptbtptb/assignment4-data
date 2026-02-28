@@ -11,6 +11,7 @@ from cs336_data.utils import (
     detect_nsfw,
     detect_toxic,
     gopher_quality_filters,
+    quality_classify,
 )
 
 
@@ -44,7 +45,7 @@ def run_classify_toxic_speech(text: str) -> tuple[Any, float]:
 
 
 def run_classify_quality(text: str) -> tuple[Any, float]:
-    raise NotImplementedError
+    return quality_classify(text)
 
 
 def run_gopher_quality_filter(text: str) -> bool:

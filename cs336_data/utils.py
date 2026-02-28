@@ -178,7 +178,7 @@ class AlphabeticWordFilter(QualityFilter):
         words = text.split()
         if not words:
             return True
-        alpha_words = sum(1 for word in words if any(c.isalpha() for c in word))
+        alpha_words: int = sum(1 for word in words if any(c.isalpha() for c in word))
         return (alpha_words / len(words)) < 0.8
 
 
@@ -203,3 +203,51 @@ def gopher_quality_filters(text: str) -> bool:
 
     # Process through the chain
     return word_count_filter.handle(text)
+
+
+def quality_classify(text: str) -> tuple[bool, float]:
+    """
+    Classify text quality using a trained fastText-style classifier.
+
+    Args:
+        text: Input text to classify
+        model_path: Path to the trained model .pt file
+
+    Returns:
+        Probability that the text is high quality (positive class)
+    """
+    import torch
+    from cs336_data.quality_classifier import FastTextClassifier, Vocabulary
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model_path = "quality_classifier.pt"
+    checkpoint = torch.load(model_path, map_location=device, weights_only=True)
+
+    config = checkpoint["config"]
+    model = FastTextClassifier(
+        vocab_size=config["vocab_size"],
+        embed_dim=config["embed_dim"],
+        hidden_dims=config["hidden_dims"],
+    )
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.to(device)
+    model.eval()
+
+    # Reconstruct vocabulary from saved data
+    vocab = Vocabulary(min_freq=checkpoint.get("vocab_min_freq", 1))
+    vocab.word2idx = checkpoint["vocab_word2idx"]
+    vocab.idx2word = {v: k for k, v in vocab.word2idx.items()}
+
+    token_ids = vocab.encode(text)
+    if not token_ids:
+        token_ids = [vocab.word2idx["<UNK>"]]
+
+    token_ids_tensor = torch.tensor(token_ids, dtype=torch.long).to(device)
+    offsets_tensor = torch.tensor([0], dtype=torch.long).to(device)
+
+    with torch.no_grad():
+        logits = model(token_ids_tensor, offsets_tensor)
+        prob = torch.sigmoid(logits).item()
+    prediction = "cc" if prob < 0.5 else "wiki"
+    print(f"tlu7. ... prediction:', {prediction}, 'prob:', {prob}, 'text:', {text[:100]}")
+    return (prediction, prob)
