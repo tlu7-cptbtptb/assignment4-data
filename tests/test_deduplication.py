@@ -9,21 +9,15 @@ logger = logging.getLogger(__name__)
 
 
 def test_exact_line_deduplication(tmp_path):
-    documents_with_line_duplicates_paths = list(
-        (FIXTURES_PATH / "documents_with_line_duplicates").glob("doc*.txt")
-    )
-    documents_without_line_duplicates_paths = list(
-        (FIXTURES_PATH / "documents_line_deduplicated").glob("doc*.txt")
-    )
+    documents_with_line_duplicates_paths = list((FIXTURES_PATH / "documents_with_line_duplicates").glob("doc*.txt"))
+    documents_without_line_duplicates_paths = list((FIXTURES_PATH / "documents_line_deduplicated").glob("doc*.txt"))
     # Load deduplicated documents
     deduplicated_documents = []
     for path in documents_without_line_duplicates_paths:
         with open(path) as f:
             deduplicated_documents.append(f.read())
 
-    run_exact_line_deduplication(
-        input_files=documents_with_line_duplicates_paths, output_directory=tmp_path
-    )
+    run_exact_line_deduplication(input_files=documents_with_line_duplicates_paths, output_directory=tmp_path)
     output_filepaths = list(tmp_path.glob("*"))
 
     assert len(output_filepaths) == 5
@@ -44,9 +38,7 @@ def test_minhash_deduplication_exact_duplicates(tmp_path):
     """
     Check that minhash deduplication properly identifies and removes exact duplicates.
     """
-    documents_with_line_duplicates_paths = list(
-        (FIXTURES_PATH / "documents_with_line_duplicates").glob("doc*.txt")
-    )
+    documents_with_line_duplicates_paths = list((FIXTURES_PATH / "documents_with_line_duplicates").glob("doc*.txt"))
     # Load deduplicated documents
     deduplicated_documents = []
     for path in documents_with_line_duplicates_paths:
@@ -66,6 +58,8 @@ def test_minhash_deduplication_exact_duplicates(tmp_path):
         jaccard_threshold=0.8,
     )
     output_filepaths = list(tmp_path.glob("*"))
+    print("tlu7 ... output_filepaths ", output_filepaths)
+    print("-" * 80)
     assert len(output_filepaths) == 4
     for filepath in output_filepaths:
         with xopen(filepath) as f:
@@ -86,9 +80,7 @@ def test_minhash_deduplication_fuzzy_duplicates(tmp_path):
     duplicates (two documents with the MIT license, but with slightly different
     whitespace and attribution).
     """
-    documents_with_fuzzy_duplicates_paths = list(
-        (FIXTURES_PATH / "documents_with_fuzzy_duplicates").glob("*.txt")
-    )
+    documents_with_fuzzy_duplicates_paths = list((FIXTURES_PATH / "documents_with_fuzzy_duplicates").glob("*.txt"))
     # Load deduplicated documents
     deduplicated_documents = []
     kept_duplicated_documents = []
@@ -96,10 +88,7 @@ def test_minhash_deduplication_fuzzy_duplicates(tmp_path):
         # rails_mit_license.txt and react_mit_license.txt are fuzzy duplicates, so we only want
         # to keep one of them.
         with open(path) as f:
-            if (
-                path.name == "rails_mit_license.txt"
-                or path.name == "react_mit_license.txt"
-            ):
+            if path.name == "rails_mit_license.txt" or path.name == "react_mit_license.txt":
                 kept_duplicated_documents.append(f.read())
             else:
                 deduplicated_documents.append(f.read())

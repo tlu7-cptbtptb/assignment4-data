@@ -294,3 +294,160 @@ def exact_deduplication(input_file_paths: list[str], output_dir: str) -> None:
             for line in f:
                 if line_hash_counter[_hash_line(line)] == 1:
                     out_f.write(line)
+
+
+def minhash_deduplication(
+    input_file_paths: list[str],
+    num_hash: int,
+    num_band: int,
+    n_gram_len: int,
+    output_dir: str,
+    jaccard_threshold: float = 0.8,
+) -> None:
+    """
+    Steps:
+
+    minhashing:
+
+    - Represent each document as a set S of n-grams (e.g. 3-grams).
+    - Run a hash function on each n-gram to get a hash value.
+    - minhash(hi, S) = min{h(i, x) | x in S}
+    - document representation: minhash values from each hash function; [minhash(h1, S), minhash(h2, S), ... , minhash(hk, S)]
+
+    banding:
+
+    - (Can assume num_hash is divisible by num_band (e.g. 50 and 10))
+    - Split the minhash values into num_band bands of equal size.
+    - build cluster: if 2 docs have the same band value for any band, they are in the same cluster.
+
+    actual jaccard deduplication:
+    - for documents in the same cluster, compute the jaccard similarity between them.
+    - if jaccard similarity is above a threshold, keep only one
+    """
+    import hashlib
+    from collections import defaultdict
+
+    # Large prime for hash functions
+    PRIME = 2**61 - 1
+    MAX_HASH = 2**32
+
+    # Generate random hash function parameters (a, b) for each hash function
+    import random
+
+    random.seed(42)  # For reproducibility
+    hash_params = [(random.randint(1, PRIME - 1), random.randint(0, PRIME - 1)) for _ in range(num_hash)]
+
+    def get_ngrams(text: str, n: int) -> set[str]:
+        """Extract character n-grams from text."""
+        text = text.lower().replace("\n", " ")
+        if len(text) < n:
+            return {text} if text else set()
+        return {text[i : i + n] for i in range(len(text) - n + 1)}
+
+    def hash_ngram(ngram: str) -> int:
+        """Hash an n-gram to an integer."""
+        return int(hashlib.md5(ngram.encode("utf-8")).hexdigest(), 16) % MAX_HASH
+
+    def compute_minhash(ngrams: set[str], hash_params: list[tuple[int, int]]) -> list[int]:
+        """Compute minhash signature for a set of n-grams."""
+        if not ngrams:
+            return [MAX_HASH] * len(hash_params)
+
+        # Hash all n-grams once
+        ngram_hashes = [hash_ngram(ng) for ng in ngrams]
+
+        signature = []
+        for a, b in hash_params:
+            # h(x) = (a * x + b) % PRIME
+            min_hash = min((a * h + b) % PRIME for h in ngram_hashes)
+            signature.append(min_hash)
+        return signature
+
+    def get_bands(signature: list[int], num_band: int) -> list[tuple[int, ...]]:
+        """Split signature into bands."""
+        band_size = len(signature) // num_band
+        return [tuple(signature[i * band_size : (i + 1) * band_size]) for i in range(num_band)]
+
+    def jaccard_similarity(set1: set[str], set2: set[str]) -> float:
+        """Compute Jaccard similarity between two sets."""
+        if not set1 and not set2:
+            return 1.0
+        if not set1 or not set2:
+            return 0.0
+        intersection = len(set1 & set2)
+        union = len(set1 | set2)
+        return intersection / union
+
+    # Step 1: Read documents and compute minhash signatures
+    doc_data: dict[str, tuple[str, set[str], list[int]]] = {}  # path -> (content, ngrams, signature)
+
+    for path in input_file_paths:
+        with open(path) as f:
+            content = f.read()
+        ngrams = get_ngrams(content, n_gram_len)
+        signature = compute_minhash(ngrams, hash_params)
+        doc_data[path] = (content, ngrams, signature)
+
+    # Step 2: LSH banding - group documents by band values
+    band_buckets: dict[tuple[int, tuple[int, ...]], set[str]] = defaultdict(
+        set
+    )  # (band_idx, band_value) -> set of paths
+
+    for path, (content, ngrams, signature) in doc_data.items():
+        bands = get_bands(signature, num_band)
+        for band_idx, band_value in enumerate(bands):
+            band_buckets[(band_idx, band_value)].add(path)
+
+    # Step 3: Find candidate pairs (documents that share at least one band)
+    candidate_pairs: set[tuple[str, str]] = set()
+    for bucket_paths in band_buckets.values():
+        if len(bucket_paths) > 1:
+            paths_list = list(bucket_paths)
+            for i in range(len(paths_list)):
+                for j in range(i + 1, len(paths_list)):
+                    pair = tuple(sorted([paths_list[i], paths_list[j]]))
+                    candidate_pairs.add(pair)
+    print("tlu7... candidate_pairs:", candidate_pairs)
+
+    # Step 4: Compute actual Jaccard similarity for candidates and build clusters
+    # Use Union-Find to group duplicates
+    parent: dict[str, str] = {path: path for path in input_file_paths}
+
+    def find(x: str) -> str:
+        if parent[x] != x:
+            parent[x] = find(parent[x])
+        return parent[x]
+
+    def union(x: str, y: str) -> None:
+        px, py = find(x), find(y)
+        if px != py:
+            parent[px] = py
+
+    for path1, path2 in candidate_pairs:
+        ngrams1 = doc_data[path1][1]
+        ngrams2 = doc_data[path2][1]
+        similarity = jaccard_similarity(ngrams1, ngrams2)
+        if similarity >= jaccard_threshold:
+            union(path1, path2)
+
+    # Step 5: Keep only one document per cluster (the representative)
+    clusters: dict[str, list[str]] = defaultdict(list)
+    for path in input_file_paths:
+        root = find(path)
+        clusters[root].append(path)
+
+    # Keep the first document in each cluster (by sorted order for determinism)
+    docs_to_keep: set[str] = set()
+    for cluster_paths in clusters.values():
+        cluster_paths.sort()
+        docs_to_keep.add(cluster_paths[0])
+    print("tlu7... docs_to_keep:", docs_to_keep)
+
+    # Step 6: Write output files
+    os.makedirs(output_dir, exist_ok=True)
+    for path in input_file_paths:
+        output_path = os.path.join(output_dir, os.path.basename(path))
+        if path in docs_to_keep:
+            # Keep the document
+            with open(path) as f, open(output_path, "w") as out_f:
+                out_f.write(f.read())
