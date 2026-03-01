@@ -7,6 +7,8 @@ from resiliparse.extract.html2text import extract_plain_text
 import fasttext
 import re
 import nltk
+from collections import Counter
+import os
 
 
 def extract_text_from_byte_string(input: bytes) -> str | None:
@@ -249,5 +251,46 @@ def quality_classify(text: str) -> tuple[bool, float]:
         logits = model(token_ids_tensor, offsets_tensor)
         prob = torch.sigmoid(logits).item()
     prediction = "cc" if prob < 0.5 else "wiki"
-    print(f"tlu7. ... prediction:', {prediction}, 'prob:', {prob}, 'text:', {text[:100]}")
+    # print(f"tlu7. ... prediction:', {prediction}, 'prob:', {prob}, 'text:', {text[:100]}")
     return (prediction, prob)
+
+
+def _hash_line(line: str) -> int:
+    """Compute a hash of a line for memory-efficient deduplication."""
+    import hashlib
+
+    return int(hashlib.sha256(line.encode("utf-8")).hexdigest(), 16)
+
+
+def exact_deduplication(input_file_paths: list[str], output_dir: str) -> None:
+    """
+    if the input paths are a/1.txt and
+    a/2.txt, and the output directory is b/, your function should write the files b/1.txt and b/2.txt.
+
+    First, make one pass through the corpus to count how many occurrences of each line we observe.
+    Then, in a second pass, we can rewrite each document by preserving only its unique lines.
+
+    e.g. input
+    1.txt: "line_a \n line_b"
+    2.txt: "line_c \n line_b \n line_x"
+
+    write to
+    <output_dir>/1.txt: "line_a"
+    <output_dir>/2.txt: "line_c \n line_x"
+
+    Memory optimization: Uses hash of line as key instead of full line string.
+    """
+    # Pass 1: Count occurrences using hash as key
+    line_hash_counter: Counter[int] = Counter()
+    for path in input_file_paths:
+        with open(path) as f:
+            for line in f:
+                line_hash_counter[_hash_line(line)] += 1
+
+    # Pass 2: Write only lines that appear exactly once globally
+    for path in input_file_paths:
+        output_path = os.path.join(output_dir, os.path.basename(path))
+        with open(path) as f, open(output_path, "w") as out_f:
+            for line in f:
+                if line_hash_counter[_hash_line(line)] == 1:
+                    out_f.write(line)

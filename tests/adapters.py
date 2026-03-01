@@ -12,6 +12,7 @@ from cs336_data.utils import (
     detect_toxic,
     gopher_quality_filters,
     quality_classify,
+    exact_deduplication,
 )
 
 
@@ -53,7 +54,7 @@ def run_gopher_quality_filter(text: str) -> bool:
 
 
 def run_exact_line_deduplication(input_files: list[os.PathLike], output_directory: os.PathLike):
-    raise NotImplementedError
+    exact_deduplication(input_files, output_directory)
 
 
 def run_minhash_deduplication(
